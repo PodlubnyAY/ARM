@@ -26,8 +26,7 @@ def set_args(subparser, name):
                                help="Указать требуемую нижниюю границу значения выбранной метрики (0.7 по умолчанию)")
 
 
-parser = argparse.ArgumentParser(usage='%(prog)s subcommand [options] input_file')
-# parser.add_argument('-h','--help', help="Показать данное сообщение")
+parser = argparse.ArgumentParser()
 subparsers = parser.add_subparsers(title="Subcommands", dest="command")
 
 parser_p = subparsers.add_parser("parsel", help='Найти все заключения по заданной посылке')
@@ -43,7 +42,7 @@ set_args(parser_p_c, "parsel_and_conclusion")
 parser_p_c.add_argument("parsel", type=str)
 parser_p_c.add_argument("conclusion", type=str)
 
-parser_f = subparsers.add_parser("p_c_factors", help='Найти все логические зависимости для заданных свойств')
+parser_f = subparsers.add_parser("factors", help='Найти все логические зависимости для заданных свойств')
 set_args(parser_f, "factors")
 parser_f.add_argument("factors", type=str, nargs='+', help="Факторы для поиска логических зависимостей")
 
@@ -69,25 +68,6 @@ def filter_columns(df, columns):
     return df.drop(list(filter_columns), axis=1)
 
 
-def one_hot_encoder(df):
-    transactions = [
-        [f"{column}={transaction[i]}" for i, column in enumerate(df.columns)]
-        for transaction in df.itertuples(index=False)
-    ]
-    te = TransactionEncoder()
-    te_ary = te.fit(transactions).transform(transactions)
-    return pd.DataFrame(te_ary, columns=te.columns_)
-
-
-PREPROCESSING_ROUTER = {
-    "parsel": lambda df, args: filter_rows_preprocessing(df, args.parsel),
-    "conclusion": lambda df, args: filter_rows_preprocessing(df, args.conclusion),
-    "parsel_and_conclusion": lambda df, args: filter_rows_preprocessing(df, " & ".join([args.parsel, args.conclusion])),
-    "p_c_factors": lambda df, args: filter_columns(df, args.factors),
-    "all": lambda df, _: df
-}
-
-
 def filter_rows_postprocessing(df, condition, column):
     condition = re.split(r'\s*&{1,2}\s*', condition)
     return df[df[column] == frozenset(condition)]
@@ -107,15 +87,23 @@ POSTPROCESSING_ROUTER = {
     "parsel": lambda df, args: filter_rows_postprocessing(df, args.parsel, "antecedents"),
     "conclusion": lambda df, args: filter_rows_postprocessing(df, args.conclusion, "consequents"),
     "parsel_and_conclusion": parsel_and_conclusion,
-    "p_c_factors": lambda df, args: df,
+    "factors": lambda df, args: df,
     "all": lambda df, _: df
 }
 
 
-def main(args):
+def main():
+    args = parser.parse_args()
     df = pd.read_excel(args.input)
-    df = PREPROCESSING_ROUTER[args.command](df, args)
-    df = one_hot_encoder(df)
+    if args.command == "factors":
+        df = filter_columns(df, args.factors)
+    transactions = [
+        [f"{column}={transaction[i]}" for i, column in enumerate(df.columns)]
+        for transaction in df.itertuples(index=False)
+    ]
+    te = TransactionEncoder()
+    te_ary = te.fit(transactions).transform(transactions)
+    df = pd.DataFrame(te_ary, columns=te.columns_)
     method = METHODS.get(args.method, fpgrowth)
     frequent_itemsets = method(df, min_support=args.min_support, use_colnames=True)
     rules = association_rules(frequent_itemsets, metric=args.metric, min_threshold=args.min_threshold)
@@ -128,5 +116,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    print(arguments := parser.parse_args())
-    main(arguments)
+    main()
