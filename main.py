@@ -6,7 +6,8 @@ from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, fpgrowth
 from mlxtend.frequent_patterns import association_rules
 from sklearn import tree 
-from sklearn.cluster import dbscan
+# from sklearn.cluster import dbscan
+from functools import reduce
 
 METRICS = {'confidence', 'leverage', 'conviction', 'zhangs_metric', 'lift'}
 METHODS = {"apriori": apriori, "fpgrowth": fpgrowth, "tree": ...}
@@ -95,6 +96,30 @@ ROUTER = {
 }
 
 
+def one_hot_encode(df, labels=False):
+    if isinstance(df, pd.DataFrame):
+        transactions = [
+            [f"{column}={transaction[i]}" for i, column in enumerate(df.columns)]
+            for transaction in df.itertuples(index=False)
+        ]
+        labels_ = set(reduce(lambda l1, l2: l1 + l2, transactions))
+    elif isinstance(df, pd.Series):
+        transactions = [
+            [f"{df.name}={transaction}"]
+            for transaction in df
+        ]
+        labels_ = set([t[0] for t in transactions])
+    else:
+        raise TypeError(f"Bad type: {type(df)}")
+    
+    te = TransactionEncoder()
+    te_ary = te.fit(transactions).transform(transactions)
+    df = pd.DataFrame(te_ary, columns=te.columns_)
+    if labels:
+        return df, tuple(labels_)
+    return df
+
+
 def main(args):
     try:
         df = pd.read_excel(args.input)
@@ -106,21 +131,29 @@ def main(args):
         df = filter_columns(df, args.factors)
 
     if args.method == 'tree':
-        _, target = dbscan(df, eps=1)
+        labels = list(df.columns)
+        target_label = labels.pop(0)
+        X, feature_names = one_hot_encode(
+            df.drop([target_label], axis=1), 
+            labels=True
+        )
+        target, target_names = one_hot_encode(df[target_label], labels=True)
         model = tree.DecisionTreeClassifier(criterion='entropy')
-        model.fit(df, target)
-        rules = tree.plot_tree(model)
-        print(rules)
-        plt.show()
+        model.fit(X, target)
+        # import pdb; pdb.set_trace()
+        # rules = tree.plot_tree(model, filled=True, class_names=target_names)
+        # print(rules)
+        # plt.show()
+        print(target_names, feature_names)
+        r = tree.export_text(
+            model, 
+            class_names=['a', 'b', 'c'], 
+            feature_names=feature_names
+        )
+        print(r)
         return
     
-    transactions = [
-        [f"{column}={transaction[i]}" for i, column in enumerate(df.columns)]
-        for transaction in df.itertuples(index=False)
-    ]
-    te = TransactionEncoder()
-    te_ary = te.fit(transactions).transform(transactions)
-    df = pd.DataFrame(te_ary, columns=te.columns_)
+    df = one_hot_encode(df)
     method = METHODS.get(args.method, fpgrowth)
     frequent_itemsets = method(
         df, 
@@ -130,7 +163,8 @@ def main(args):
     rules = association_rules(
         frequent_itemsets, 
         metric=args.metric, 
-        min_threshold=args.min_threshold
+        min_threshold=args.min_threshold,
+        # support_only=True,
     )
     rules = ROUTER[args.command](rules, args)
     if not args.verbose:
@@ -145,5 +179,5 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args(['all', '-m', 'tree', 'test_input.xlsx'])
+    args = parser.parse_args('all --min_threshold 0.63 --min_support 0.35 --method tree test_input.xlsx'.split()) #  --method tree
     main(args)
