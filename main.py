@@ -160,6 +160,7 @@ def main(args):
         min_support=args.min_support, 
         use_colnames=True
     )
+    # print(frequent_itemsets);exit()
     rules = association_rules(
         frequent_itemsets, 
         metric=args.metric, 
@@ -179,5 +180,5 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args('all --min_threshold 0.63 --min_support 0.35 --method tree test_input.xlsx'.split()) #  --method tree
+    args = parser.parse_args('all --min_threshold 0.6 --min_support 0.35 --method apriori validate_input.xlsx'.split()) #  --method tree
     main(args)
