@@ -7,6 +7,7 @@ import pandas as pd
 def calc_support(s: pd.Series, v):
     return s[s == v].size / s.size
 
+
 node2str = lambda s:[k+":"+str(v) for k, v in sorted(s.value_counts().items())]
     
 
@@ -41,15 +42,25 @@ def _get_orginized_attr(df, target) -> str:
 
 
 class TreeNode:
-    def __init__(self, name, query, columns=None, values=None):
+    def __init__(self, name, query, columns=None, support=None, confidence=None):
         self.name = name
         self.query = query
         self.columns = [] if columns is None else columns
-        self.values = values
+        self.support = support
+        self.confidence = confidence
         self.edges = []
     
-    def __str__(self) -> str:
-        return f"{self.query} (sup={self.values:.3f})"
+    def get_rules(self, target_name) -> str:
+        rules = ""
+        for v, c in self.confidence.items():
+            rules += " ".join([
+                "\nif", self.query,
+                f"(sup={self.support:.3f})",
+                "then", target_name, "=", str(v),
+                f"(confidence={c:.3f})",
+            ])
+            
+        return rules
 
 
 class Tree:
@@ -67,6 +78,15 @@ class Tree:
     @property
     def data(self):
         return self._data
+    
+    def calc_confidence(self, s: pd.Series):
+        confidences = {}
+        for value, count in s.value_counts().items():
+            confidence = count / s.size
+            if confidence > self._confidence:
+                confidences[value] = confidence
+        
+        return confidences
             
     def growth(self):
         self.bracnch_candidates.put(self.root)
@@ -89,41 +109,44 @@ class Tree:
                 continue
             name_template = f"{organized_attribute} == {{value}}"
             for value in sorted(set(node_data[organized_attribute])):
-                if not isinstance(value, (int, float, complex)):
-                    value = f"'{value}'"
-                name = name_template.format(value=value)
-                # df_m = node_data.query(name)
-                support =  0.15 # calc_support(df_m.iloc[:, -1], value)
+                support = calc_support(node_data[organized_attribute], value)
                 if support < self._support:
                     continue
-                if node.query:
-                    query = " & ".join([node.query, name])
-                else:
-                    query = name
                 
+                if not isinstance(value, (int, float, complex)):
+                    value = f"'{value}'"
+                
+                name = name_template.format(value=value)
+                df_m = node_data.query(name)
+                confidence = self.calc_confidence(df_m[self.target_column])
                 new_node = TreeNode(
-                    name, query, 
+                    name, 
+                    " & ".join([node.query, name]) if node.query else name, 
                     node.columns + [organized_attribute], 
-                    support,
+                    support, confidence,
                 )
                 node.edges.append(new_node)
                 self.bracnch_candidates.put(new_node)
     
-    def __str__(self) -> str:
-        str_tree = f"Tree for {self.target_column}"
+    def get_rules(self) -> pd.DataFrame:
+        columns=(
+            "consequents", "antecedents", 
+            "support", "confidence",
+        )
+        data = []
         def nested():
-            nonlocal str_tree
+            nonlocal data
             cursor: TreeNode = self.cursor
             if cursor.name != "root":
-                v = self.data.query(cursor.query)
-                v = v.drop(columns=cursor.columns)[self.target_column]
-                v = node2str(v)
-                str_tree += " ".join(
-                    ["\nif " + str(cursor), 
-                    "then", 
-                    self.target_column, "=", str(v),
-                    "confidence = ..."],
-                )
+                for v, c in cursor.confidence.items():
+                    if c < self._confidence:
+                        continue
+                    data.append([
+                        cursor.query,
+                        f"{self.target_column}=={v}",
+                        cursor.support, c,
+                    ])
+
             for node in cursor.edges:
                 self.cursor = node
                 nested()
@@ -131,35 +154,14 @@ class Tree:
             self.cursor = cursor
         
         nested()
-        return str_tree
-
-
-def __recursion(tree, str_tree="") -> str:
-    cursor: TreeNode = tree.cursor
-    if cursor.name == "root":
-        str_tree = f"Tree for {tree.target_column}"
-    else:
-        v = tree.data.query(cursor.query)
-        v = v.drop(columns=cursor.columns)[tree.target_column]
-        v = node2str(v)
-        str_tree += " ".join(
-            ["\nif"+str(cursor), 
-             "then", 
-             tree.target_column, "=", v,
-             "confidence = ..."],
-        )
-    for node in cursor.edges:
-        tree.cursor = node
-        str_tree += __recursion(tree, str_tree)
-        tree.cursor = cursor
-        
-    return str_tree
+        return pd.DataFrame(data, columns=columns)
         
         
 if __name__ == "__main__":
     df = pd.read_excel("./validate_input.xlsx")
     i = df.columns[0]
-    t = Tree(df, i)
+    t = Tree(df, i, min_confidence=0.55)
     t.growth()
-    print(t)
-    # print(f"Tree for {t.target_column}\n" + str(t))
+    rules = t.get_rules().round(3)
+    print(rules.to_string(index=False))
+    
