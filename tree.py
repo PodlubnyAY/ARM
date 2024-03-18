@@ -1,116 +1,167 @@
-import math
 import pandas as pd
+from math import log2
+from queue import Queue
 from functools import reduce
-from multiprocessing import Pool
 
 
-df0 = pd.read_excel("./validate_input.xlsx")
-cstr = lambda s:[k+":"+str(v) for k, v in sorted(s.value_counts().items())]
-entropy = lambda s:-reduce(lambda x, y:x+y, map(lambda x:(x/len(s))*math.log2(x/len(s)), s.value_counts()))
-support = lambda s, v: s[s==v].size / s.size
- 
-
-def exceptioner(f ):
-    def wrapped(*args, **kwargs):
-        try:
-            result = f(*args, **kwargs)
-            return result
-        except Exception as e:
-            print(f"ERROR {f.__name__}{args} {e}")
-    return wrapped
+def calc_support(s: pd.Series, v):
+    return s[s == v].size / s.size
 
 
-def growth_tree(target_index):
-    # Структура данных Decision Tree
-    df = df0.astype(str)
-    target_column = df0.columns[target_index]
-    # df = df0.drop(columns=target_column).astype(str)
-    # df = df.join(df0[target_column].astype(str))
-    tree = {
-        # name: Название этого нода (узла)
-        "name":"root",  # "decision tree "+df0.columns[-1]+" "+str(cstr(df0.iloc[:, -1])), 
-        # df: Данные, связанные с этим нодом (узлом)
-        "df":df, 
-        # edges: Список ребер (ветвей), выходящих из этого узла, 
-        # или пустой массив, если ниже нет листового узла.
-        "edges":[], 
-    }
+def calc_entropy(s: pd.Series):
+    iterable = list(map(
+        lambda x: (x / s.size) * log2(x / s.size), 
+        s.value_counts(),
+    ))
+    return - reduce(
+        lambda x, y: x + y, 
+        iterable
+    )
 
-    # Генерацию дерева, у узлов которого могут быть ветви, сохраняем в open
-    open = [tree]
-    # Зацикливаем, пока open не станет пустым
-    while(len(open)!=0):
-        # Вытаскиваем из массива open первый элемент, 
-        # и вытаскиваем данные, хранящиеся в этом узле
-        node = open.pop(0)
-        df_node: pd.DataFrame = node["df"]
-        # В случае, если энтропия этого узла равна 0, мы больше не можем вырастить из него новые ветви
-        # поэтому прекращаем ветвление от этого узла
-        if entropy(df_node[target_column]) == 0:
-            continue
-        # Создаем переменную, в которую будем сохранять список значений атрибута с возможностью разветвления
-        branching_attrs = {}
-        # Исследуем все атрибуты, кроме последнего столбца класса атрибутов
-        for attr in df_node.columns.delete(df_node.columns == target_column):
-            # Создаем переменную, которая хранит значение энтропии при ветвлении с этим атрибутом, 
-            # данные после разветвления и значение атрибута, который разветвляется.
-            branching_attrs[attr] = {
-                "entropy": 0, 
-                "dfs": [], 
-                "values": [],
-            }
-            # Исследуем все возможные значения этого атрибута. 
-            # Кроме того, sorted предназначен для предотвращения изменения порядка массива, 
-            # из которого были удалены повторяющиеся значения атрибутов, при каждом его выполнении.
-            for value in sorted(set(df_node[attr])):
-                # Фильтруем данные по значению атрибута
-                df_m = df_node.query(attr+"=='"+value+"'")
-                # Высчитываем энтропию, данные и значения сохрнаяем
-                branching_attrs[attr]["entropy"] += entropy(df_m[target_column]) * df_m.shape[0] / df_node.shape[0]
-                branching_attrs[attr]["dfs"] += [df_m]  # Bad for memory. Better to store indexes for this
-                branching_attrs[attr]["values"] += [value]
 
-        # Если не осталось ни одного атрибута, значение которого можно разделить, 
-        # прерываем исследование этого узла.
-        if len(branching_attrs) == 0:
-            continue
-        # Получаем атрибут с наименьшим значением энтропии
-        attr = min(branching_attrs, key=lambda x:branching_attrs[x]["entropy"])
-        # Добавляем каждое значение разветвленного атрибута
-        # и данные, полученные после разветвления, в наше дерево и в open.
-        for d, v in zip(branching_attrs[attr]["dfs"], branching_attrs[attr]["values"]):
-            m = {
-                "name": attr + "=" + v, 
-                "edges":[], 
-                "df": d.drop(columns=attr),
-            }
-            node["edges"].append(m)
-            open.append(m)
-    return tree
-        
-
-def print_tree(tree, target, tree_string=""):
-    tree_string += f"'{tree['name']}'"
-    if tree['name'] == 'root':
-        print(tree["df"].iloc[:, target].name)
-        tree_string = "if "
-    else:
-        tree_string += " and "
-    lines = []
-    for e in tree["edges"]:
-        lines.append(print_tree(e, target, tree_string))
-    if not lines:
-        print(tree_string[:-5] + " then " + str(cstr(tree["df"].iloc[:, -1])))
-
-if __name__ == "__main__":
+class TreeNode:
+    def __init__(self, name, query, columns=None, support=None, confidence=None):
+        self.name = name
+        self.query = query
+        self.columns = [] if columns is None else columns
+        self.support = support
+        self.confidence = confidence
+        self.edges = []
     
-    # with Pool(5) as p:
-    #     forest = p.map(growth_tree, range(len(df0.columns)))
+    def get_rules(self, target_name) -> str:
+        rules = ""
+        for v, c in self.confidence.items():
+            rules += " ".join([
+                "\nif", self.query,
+                f"(sup={self.support:.3f})",
+                "then", target_name, "=", str(v),
+                f"(confidence={c:.3f})",
+            ])
+            
+        return rules
+
+
+class Tree:
+    def __init__(
+        self, data, target_column, min_support=0.05, min_threshold=0.9,
+        supposed_root_attribute=None, **kwargs,
+    ) -> None:
+        self.root = TreeNode("root", None)
+        self.cursor = self.root
+        self._data: pd.DataFrame = data
+        self.target_column = target_column
+        self._support = min_support
+        self._confidence = min_threshold
+        self.bracnch_candidates = Queue()
+        self.supposed_antecedence = supposed_root_attribute
+
+    def calc_confidence(self, s: pd.Series):
+        confidences = {}
+        for value, count in s.value_counts().items():
+            confidence = count / s.size
+            if confidence > self._confidence:
+                confidences[value] = confidence
         
-    # for tree in forest:
-    #     print_tree(tree)
-    i=0
-    # for i in range(len(df0.columns)):
-    tree = growth_tree(i)
-    print_tree(tree, i)
+        return confidences
+    
+    def _get_orginized_attr(self, df) -> str:
+        attrs = df.columns.delete(df.columns == self.target_column)
+        if (
+            self.supposed_antecedence is not None
+            and self.supposed_antecedence in attrs
+        ):
+            return self.supposed_antecedence
+        
+        organized_attribute = ""
+        for attr in attrs:
+            entropy, current_entropy = None, 0
+            for value in sorted(set(df[attr])):
+                if not isinstance(value, (int, float, complex)):
+                        value = f"'{value}'"
+                name = f"{attr} == {value}"
+                df_m = df.query(name)
+                current_entropy += calc_entropy(
+                    df_m[self.target_column]
+                ) * df_m.shape[0] / df.shape[0]
+            
+            if entropy is None or entropy > current_entropy:
+                entropy = current_entropy
+                organized_attribute = attr
+        return organized_attribute
+            
+    def growth(self):
+        self.bracnch_candidates.put(self.root)
+        while not self.bracnch_candidates.empty():
+            node: TreeNode = self.bracnch_candidates.get()
+            if node.name == "root":
+                node_data = self._data
+            else:
+                node_data = self._data.query(node.query)
+                node_data = node_data.drop(columns=node.columns)
+            if len(node_data.columns) == 1:
+                continue
+            if calc_entropy(node_data[self.target_column]) == 0:
+                continue
+            
+            organized_attribute = self._get_orginized_attr(node_data)
+            if not organized_attribute:
+                continue
+            name_template = f"{organized_attribute} == {{value}}"
+            for value in sorted(set(node_data[organized_attribute])):
+                support = calc_support(node_data[organized_attribute], value)
+                
+                if support < self._support:
+                    continue
+                
+                if not isinstance(value, (int, float, complex)):
+                    value = f"'{value}'"
+                
+                name = name_template.format(value=value)
+                df_m = node_data.query(name)
+                confidence = self.calc_confidence(df_m[self.target_column])
+                new_node = TreeNode(
+                    name, 
+                    " & ".join([node.query, name]) if node.query else name, 
+                    node.columns + [organized_attribute], 
+                    support, confidence,
+                )
+                node.edges.append(new_node)
+                self.bracnch_candidates.put(new_node)
+    
+    def get_rules(self) -> pd.DataFrame:
+        columns=(
+            "consequents", "antecedents", 
+            "support", "confidence",
+        )
+        data = []
+        def nested():
+            nonlocal data
+            cursor: TreeNode = self.cursor
+            if cursor.name != "root":
+                for v, c in cursor.confidence.items():
+                    if c < self._confidence:
+                        continue
+                    data.append([
+                        cursor.query,
+                        f"{self.target_column}=={v}",
+                        cursor.support, c,
+                    ])
+
+            for node in cursor.edges:
+                self.cursor = node
+                nested()
+                
+            self.cursor = cursor
+        
+        nested()
+        return pd.DataFrame(data, columns=columns)
+
+        
+if __name__ == "__main__":
+    df = pd.read_excel("./validate_input.xlsx")
+    i = df.columns[0]
+    t = Tree(df, i, min_threshold=0.75, supposed_root_attribute="Feature4")
+    t.growth()
+    rules = t.get_rules().round(3)
+    print(rules.to_string(index=False))
     
