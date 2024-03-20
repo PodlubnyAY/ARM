@@ -154,12 +154,4 @@ class Tree:
         nested()
         return pd.DataFrame(data, columns=columns)
 
-        
-if __name__ == "__main__":
-    df = pd.read_excel("./validate_input.xlsx")
-    i = df.columns[0]
-    t = Tree(df, i, min_threshold=0.75, supposed_root_attribute="Feature4")
-    t.growth()
-    rules = t.get_rules().round(3)
-    print(rules.to_string(index=False))
     
