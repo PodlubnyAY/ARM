@@ -3,6 +3,7 @@ import pandas as pd
 from typing import List
 
 import tools
+import metrics
 from argparser import ArgParser
 
 parser = ArgParser()
@@ -149,12 +150,6 @@ def parsel_conclusion(
     save_to=None,
 ):
     """Оценить заданные посылку и заключение"""
-    metric_dict = {
-    "antecedent support": lambda _, sA, __: sA,
-    "consequent support": lambda _, __, sC: sC,
-    "support": lambda _, sA, __: sA,
-    "confidence": lambda sAC, sA, _: sAC / sA,
-}
     pattern = r"[\w\d_-]+\s*(={1,2})\s*(?:\d+|'[\w\d_-]+')([\s,]&\s?)?"
     data = read_file(input_file)
     if match := re.match(pattern, parsel):
@@ -179,7 +174,7 @@ def parsel_conclusion(
         "antecedents": [parsel], 
         "consequents": [conclusion], 
     }
-    base_dict |= {name : [m(*args)] for name, m in metric_dict.items()}
+    base_dict |= {name : [m(*args)] for name, m in metrics.metric_dict.items()}
     rule = pd.DataFrame(base_dict)
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})

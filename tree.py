@@ -3,9 +3,7 @@ from math import log2
 from queue import Queue
 from functools import reduce
 
-
-def calc_support(s: pd.Series, v):
-    return s[s == v].size / s.size
+from metrics import calc_support
 
 
 def calc_entropy(s: pd.Series):
