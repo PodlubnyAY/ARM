@@ -6,6 +6,9 @@ from mlxtend.frequent_patterns import association_rules
 from mlxtend.frequent_patterns import apriori, fpgrowth
 from tree import Tree
 
+MIN_SUPPORT = 0.05
+MIN_THRESHOLD = 0.9
+
 
 def tree_rules(df, min_support, min_threshold, root=None):
     rules = []
@@ -64,22 +67,16 @@ def freq_itemset_rules(method):
     return wrapped
 
 
-def filter_columns(df, columns):
-    all_columns = set(df.columns)
-    filter_columns = all_columns - set(columns)
-    return df.drop(columns=list(filter_columns))
-
-
 def filter_rows_postprocessing(df, condition, column):
     condition = re.split(r'\s*&{1,2}\s*', condition)
     return df[df[column] == frozenset(condition)]
 
 
-def parsel_and_conclusion(df, args):
+def parsel_and_conclusion(df, parsel, conclusion):
     conditions = {
         name: re.split(r'\s*&{1,2}\s*', condition)
         for name, condition in zip(("antecedents", "consequents"),
-                                   (args.parsel, args.conclusion))
+                                   (parsel, conclusion))
     }
     return df[(df["antecedents"] == frozenset(conditions["antecedents"])) &
               (df["consequents"] == frozenset(conditions["consequents"]))]
@@ -95,6 +92,6 @@ ROUTER = {
     "parsel": lambda df, args: filter_rows_postprocessing(df, args.parsel, "antecedents"),
     "conclusion": lambda df, args: filter_rows_postprocessing(df, args.conclusion, "consequents"),
     "parsel_and_conclusion": parsel_and_conclusion,
-    "factors": lambda df, _: df,
-    "all": lambda df, _: df
+#     "factors": lambda df, _: df,
+#     "all": lambda df, _: df
 }
