@@ -8,15 +8,20 @@ from argparser import ArgParser
 
 parser = ArgParser()
 
+FILE_READER = {
+    'csv': pd.read_csv,
+    'xlsx': pd.read_excel,
+    'xls': pd.read_excel,
+}
 
 def read_file(file):
     try:
-        df = pd.read_excel(file)
+        file_format = file.split('.')[-1]
+        df = FILE_READER[file_format](file)
         return df
-    except FileNotFoundError:
-        print(f"{file} не найден")
+    except KeyError as key:
+        print(f"Неверный формат файла ({key})\nНеобходим csv, xls, xlsx")
         exit(1)
-
 
 def get_rules(method, df, min_support, min_threshold, tree_root):
     method = tools.METHODS.get(method, tools.fpgrowth)
@@ -36,10 +41,10 @@ def print_rules(rules, metric, save_to=None):
         if save_to:
             if save_to.endswith('csv'):
                 rules.to_csv(save_to)
-            elif save_to.endswith('xlsx'):
+            elif save_to.endswith('xlsx') or save_to.endswith('xls'):
                 rules.to_excel(save_to)
             else:
-                print(f"Неверный формат файла {save_to}. Необходим .csv или .xlsx")
+                print(f"Неверный формат файла {save_to}. Необходим .csv, .xls, .xlsx")
     else:
         print("Нет логических зависимостей с заданными ограничениями")
 
