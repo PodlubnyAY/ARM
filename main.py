@@ -23,19 +23,20 @@ def read_file(file):
         print(f"Неверный формат файла ({key})\nНеобходим csv, xls, xlsx")
         exit(1)
 
-def get_rules(method, df, min_support, min_threshold, tree_root):
+def get_rules(method, df, min_support, min_threshold, tree_root, n_proc=None):
     method = tools.METHODS.get(method, tools.fpgrowth)
     base_rules = method(
         df, min_support=min_support,
         min_threshold=min_threshold,
         root=tree_root,
+        n_proc=n_proc,
     )
     return base_rules
 
 
 def print_rules(rules, metric, save_to=None):
-    rules = rules.round(2)
     if rules.shape[0]:
+        rules = rules.round(2)
         rules = rules.sort_values(by=['support', metric], ascending=False)
         print(rules.to_string(index=False))
         if save_to:
@@ -66,10 +67,14 @@ def all_rules(
     metric="confidence", 
     tree_root=None, 
     save_to=None, 
+    n_proc=None,
 ):
     """Найти все возможные логические зависимости"""
     data = read_file(input_file)
-    rules = get_rules(method, data, min_support, min_threshold, tree_root)
+    rules = get_rules(
+        method, data, min_support,
+        min_threshold, tree_root, n_proc=n_proc,
+    )
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
         rules.drop(columns=columns_dropped, errors='ignore', inplace=True)
@@ -87,6 +92,7 @@ def factor(
     metric="confidence", 
     tree_root=None, 
     save_to=None,
+    n_proc=None,
 ):
     """Найти все логические зависимости для заданных свойств"""
     data = read_file(input_file)
@@ -94,7 +100,10 @@ def factor(
         factors = factors.split()
         
     data = data[factors]
-    rules = get_rules(method, data, min_support, min_threshold, tree_root)
+    rules = get_rules(
+        method, data, min_support,
+        min_threshold, tree_root, n_proc=n_proc
+    )
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
         rules.drop(columns=columns_dropped, errors='ignore', inplace=True)
@@ -112,10 +121,14 @@ def parsel(
     metric="confidence", 
     tree_root=None, 
     save_to=None,
+    n_proc=None,
 ):
     """Найти все заключения по заданной посылке"""
     data = read_file(input_file)
-    rules = get_rules(method, data, min_support, min_threshold, tree_root)
+    rules = get_rules(
+        method, data, min_support,
+        min_threshold, tree_root, n_proc=n_proc
+    )
     rules = tools.filter_rows_postprocessing(data, parsel, "antecedents")
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
@@ -134,10 +147,14 @@ def conclusion(
     metric="confidence", 
     tree_root=None, 
     save_to=None,
+    n_proc=None,
 ):
     """Найти все посылки по заданноому заключению"""
     data = read_file(input_file)
-    rules = get_rules(method, data, min_support, min_threshold, tree_root)
+    rules = get_rules(
+        method, data, min_support,
+        min_threshold, tree_root, n_proc=n_proc
+    )
     rules = tools.filter_rows_postprocessing(data, conclusion, "consequents")
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
@@ -146,7 +163,7 @@ def conclusion(
 
 
 @parser.add
-def parsel_conclusion(
+def estimate_rule(
     input_file:str,
     parsel:str,
     conclusion:str,
@@ -161,7 +178,7 @@ def parsel_conclusion(
         if match.group(1) != "==":
             parsel = parsel.replace(match.group(1), "==")
     else:
-        print(f"Неверно введена посылка: {conclusion}")
+        print(f"Неверно введена посылка: {parsel}")
         return
     if match := re.match(pattern, conclusion):
         if match.group(1) != "==":

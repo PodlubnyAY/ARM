@@ -1,6 +1,8 @@
 import re
 import pandas as pd
 from functools import reduce
+from itertools import combinations
+from multiprocessing import Pool
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import association_rules
 from mlxtend.frequent_patterns import apriori, fpgrowth
@@ -10,23 +12,36 @@ MIN_SUPPORT = 0.05
 MIN_THRESHOLD = 0.9
 
 
-def tree_rules(df, min_support, min_threshold, root=None):
-    rules = []
-    for target in df.columns:
-        t = Tree(
-            df, target, 
-            min_support=min_support, min_threshold=min_threshold,
-            supposed_root_attribute=root,
+def _get_tree_rule(df, target, min_support, min_threshold, root):
+    t = Tree(
+        df, target, 
+        min_support=min_support, min_threshold=min_threshold,
+        supposed_root_attribute=root,
+    )
+    t.growth()
+    return t.get_rules()
+
+
+def tree_rules(df, min_support, min_threshold, root=None, n_proc=None):
+    if root is None:
+        params = []
+        for col1, col2 in combinations(df.columns, 2):
+            params.extend((
+                (df, col1, min_support, min_threshold, col2),
+                (df, col2, min_support, min_threshold, col1),
+            ))
+    else:
+        params = (
+            (df, target, min_support, min_threshold, root)
+            for target, in df.columns
         )
-        t.growth()
-        r = t.get_rules()
-        if r.shape[0]:
-            rules.append(r)
         
+    n_proc = 4 if n_proc is None else int(n_proc)
+    with Pool(n_proc) as tree_pool:
+        rules = tree_pool.starmap(_get_tree_rule, params)
+    
     result = pd.concat(rules)
     result['lift'] = result['confidence'] / result['support']
-    # result['leverage'] = 
-    # TODO: append metrics
     return result
 
 
@@ -55,7 +70,7 @@ def one_hot_encode(df, labels=False):
 
 
 def freq_itemset_rules(method):
-    def wrapped(df, min_support, min_threshold, root=None):
+    def wrapped(df, min_support, min_threshold, root=None, n_proc=None):
         data = one_hot_encode(df)
         frequent_itemsets = method(data, min_support, use_colnames=True)
         rules = association_rules(
@@ -87,11 +102,4 @@ METHODS = {
     "apriori": freq_itemset_rules(apriori), 
     "fpgrowth": freq_itemset_rules(fpgrowth),
     "tree": tree_rules,
-}
-ROUTER = {
-    "parsel": lambda df, args: filter_rows_postprocessing(df, args.parsel, "antecedents"),
-    "conclusion": lambda df, args: filter_rows_postprocessing(df, args.conclusion, "consequents"),
-    "parsel_and_conclusion": parsel_and_conclusion,
-#     "factors": lambda df, _: df,
-#     "all": lambda df, _: df
 }
