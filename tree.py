@@ -1,20 +1,7 @@
 import pandas as pd
-from math import log2
 from queue import Queue
-from functools import reduce
 
-from metrics import calc_support
-
-
-def calc_entropy(s: pd.Series):
-    iterable = list(map(
-        lambda x: (x / s.size) * log2(x / s.size), 
-        s.value_counts(),
-    ))
-    return - reduce(
-        lambda x, y: x + y, 
-        iterable
-    )
+import metrics
 
 
 class TreeNode:
@@ -52,15 +39,6 @@ class Tree:
         self._confidence = min_threshold
         self.bracnch_candidates = Queue()
         self.supposed_antecedence = supposed_root_attribute
-
-    def calc_confidence(self, s: pd.Series):
-        confidences = {}
-        for value, count in s.value_counts().items():
-            confidence = count / s.size
-            if confidence > self._confidence:
-                confidences[value] = confidence
-        
-        return confidences
     
     def _get_orginized_attr(self, df) -> str:
         attrs = df.columns.delete(df.columns == self.target_column)
@@ -78,7 +56,7 @@ class Tree:
                         value = f"'{value}'"
                 name = f"{attr} == {value}"
                 df_m = df.query(name)
-                current_entropy += calc_entropy(
+                current_entropy += metrics.calc_entropy(
                     df_m[self.target_column]
                 ) * df_m.shape[0] / df.shape[0]
             
@@ -98,7 +76,7 @@ class Tree:
                 node_data = node_data.drop(columns=node.columns)
             if len(node_data.columns) == 1:
                 continue
-            if calc_entropy(node_data[self.target_column]) == 0:
+            if metrics.calc_entropy(node_data[self.target_column]) == 0:
                 continue
             
             organized_attribute = self._get_orginized_attr(node_data)
@@ -106,7 +84,7 @@ class Tree:
                 continue
             name_template = f"{organized_attribute} == {{value}}"
             for value in sorted(set(node_data[organized_attribute])):
-                support = calc_support(node_data[organized_attribute], value)
+                support = metrics.calc_support(node_data[organized_attribute], value)
                 
                 if support < self._support:
                     continue
@@ -116,7 +94,10 @@ class Tree:
                 
                 name = name_template.format(value=value)
                 df_m = node_data.query(name)
-                confidence = self.calc_confidence(df_m[self.target_column])
+                confidence = metrics.calc_confidences(
+                    df_m[self.target_column],
+                    self._confidence,    
+                )
                 new_node = TreeNode(
                     name, 
                     " & ".join([node.query, name]) if node.query else name, 
