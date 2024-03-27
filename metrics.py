@@ -14,8 +14,21 @@ def calc_entropy(s: pd.Series):
     )
 
 
-def calc_support(s: pd.Series, v):
-    return s[s == v].size / s.size
+def attribute_entropy(attr, df, target):
+    entropy = 0
+    for value in sorted(set(df[attr])):
+        if not isinstance(value, (int, float, complex)):
+                value = f"'{value}'"
+        name = f"{attr} == {value}"
+        df_m = df.query(name)
+        entropy += calc_entropy(
+            df_m[target]
+        ) * df_m.shape[0] / df.shape[0]
+    return entropy
+
+
+def calc_support(parsel, data):
+    return data.query(parsel).shape[0] / data.shape[0]
 
 
 def calc_confidences(s: pd.Series, min_confidence):
@@ -29,8 +42,6 @@ def calc_confidences(s: pd.Series, min_confidence):
 
 
 metric_dict = {
-    "antecedent support": lambda _, sA, __: sA,
-    "consequent support": lambda _, __, sC: sC,
     "support": lambda _, sA, __: sA,
     "confidence": lambda sAC, sA, _: sAC / sA,
     "lift": lambda sAC, sA, sC: sAC / sA / sC,

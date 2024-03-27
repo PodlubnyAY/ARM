@@ -12,33 +12,34 @@ MIN_SUPPORT = 0.05
 MIN_THRESHOLD = 0.9
 
 
-def _get_tree_rule(df, target, min_support, min_threshold, root):
+def _get_tree_rule(df, target, min_support, min_threshold, depth, width):
     t = Tree(
         df, target, 
         min_support=min_support, min_threshold=min_threshold,
-        supposed_root_attribute=root,
+        width=width, depth=depth,
     )
     t.growth()
     return t.get_rules()
 
 
-def tree_rules(df, min_support, min_threshold, root=None, n_proc=None):
-    if root is None:
-        params = []
-        for col1, col2 in combinations(df.columns, 2):
-            params.extend((
-                (df, col1, min_support, min_threshold, col2),
-                (df, col2, min_support, min_threshold, col1),
-            ))
-    else:
-        params = (
-            (df, target, min_support, min_threshold, root)
-            for target, in df.columns
-        )
+def tree_rules(
+    df, min_support, min_threshold,
+    tree_root=None, width=None, depth=None, n_proc=None, **kwargs,
+):
+    params = (
+        (df, target, min_support, min_threshold, depth, width)
+        for target in df.columns.delete(df.columns==tree_root)
+    )
         
-    n_proc = 4 if n_proc is None else int(n_proc)
-    with Pool(n_proc) as tree_pool:
-        rules = tree_pool.starmap(_get_tree_rule, params)
+    if n_proc is None:
+        rules = []
+        for p in params:
+            rules.append(
+                _get_tree_rule(*p)
+            )
+    else:
+        with Pool(n_proc) as tree_pool:
+            rules = tree_pool.starmap(_get_tree_rule, params)
     
     result = pd.concat(rules)
     result['lift'] = result['confidence'] / result['support']
@@ -70,7 +71,7 @@ def one_hot_encode(df, labels=False):
 
 
 def freq_itemset_rules(method):
-    def wrapped(df, min_support, min_threshold, root=None, n_proc=None):
+    def wrapped(df, min_support, min_threshold, **kwargs):
         data = one_hot_encode(df)
         frequent_itemsets = method(data, min_support, use_colnames=True)
         rules = association_rules(

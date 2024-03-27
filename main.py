@@ -20,16 +20,21 @@ def read_file(file):
         df = FILE_READER[file_format](file)
         return df
     except KeyError as key:
-        print(f"Неверный формат файла ({key})\nНеобходим csv, xls, xlsx")
+        print(f"Неверный формат файла: ({key})\nНеобходим csv, xls, xlsx")
         exit(1)
 
-def get_rules(method, df, min_support, min_threshold, tree_root, n_proc=None):
+def get_rules(
+    method, df, min_support, min_threshold, **kwargs# tree_root, n_proc=None, width=0, depth=0,
+):
     method = tools.METHODS.get(method, tools.fpgrowth)
     base_rules = method(
         df, min_support=min_support,
         min_threshold=min_threshold,
-        root=tree_root,
-        n_proc=n_proc,
+        # root=tree_root,
+        **kwargs,
+        # n_proc=n_proc,
+        # width=width,
+        # depth=depth,
     )
     return base_rules
 
@@ -65,15 +70,16 @@ def all_rules(
     method="fpgrowth",
     verbose=False, 
     metric="confidence", 
-    tree_root=None, 
     save_to=None, 
     n_proc=None,
+    width=0,
+    depth=0,
 ):
     """Найти все возможные логические зависимости"""
     data = read_file(input_file)
     rules = get_rules(
-        method, data, min_support,
-        min_threshold, tree_root, n_proc=n_proc,
+        method, data, min_support, min_threshold, width=width, depth=depth,
+        n_proc=n_proc, 
     )
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
@@ -90,9 +96,10 @@ def factor(
     method="fpgrowth", 
     verbose=False, 
     metric="confidence", 
-    tree_root=None, 
     save_to=None,
     n_proc=None,
+    width=0,
+    depth=0,
 ):
     """Найти все логические зависимости для заданных свойств"""
     data = read_file(input_file)
@@ -101,8 +108,8 @@ def factor(
         
     data = data[factors]
     rules = get_rules(
-        method, data, min_support,
-        min_threshold, tree_root, n_proc=n_proc
+        method, data, min_support, min_threshold, n_proc=n_proc,
+        width=width, depth=depth,
     )
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
@@ -119,17 +126,18 @@ def parsel(
     method="fpgrowth", 
     verbose=False, 
     metric="confidence", 
-    tree_root=None, 
     save_to=None,
     n_proc=None,
+    width=0,
+    depth=0,
 ):
     """Найти все заключения по заданной посылке"""
     data = read_file(input_file)
     rules = get_rules(
-        method, data, min_support,
-        min_threshold, tree_root, n_proc=n_proc
+        method, data, min_support, min_threshold, n_proc=n_proc,
+        width=width, depth=depth,
     )
-    rules = tools.filter_rows_postprocessing(data, parsel, "antecedents")
+    rules = tools.filter_rows_postprocessing(rules, parsel, "antecedents")
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
         rules.drop(columns=columns_dropped, errors='ignore', inplace=True)
@@ -145,17 +153,18 @@ def conclusion(
     method="fpgrowth", 
     verbose=False, 
     metric="confidence", 
-    tree_root=None, 
     save_to=None,
     n_proc=None,
+    width=0,
+    depth=0,
 ):
     """Найти все посылки по заданноому заключению"""
     data = read_file(input_file)
     rules = get_rules(
-        method, data, min_support,
-        min_threshold, tree_root, n_proc=n_proc
+        method, data, min_support, min_threshold, n_proc=n_proc,
+        width=width, depth=depth,
     )
-    rules = tools.filter_rows_postprocessing(data, conclusion, "consequents")
+    rules = tools.filter_rows_postprocessing(rules, conclusion, "consequents")
     if not verbose:
         columns_dropped = list(tools.METRICS - {metric})
         rules.drop(columns=columns_dropped, errors='ignore', inplace=True)
