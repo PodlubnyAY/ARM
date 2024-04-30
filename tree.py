@@ -36,6 +36,7 @@ class Tree:
         self._data: pd.DataFrame = data
         self.target_column = target_column
         self._support = min_support
+        self.target_support = metrics.calc_multisupport(data[target_column], 0)
         self.width = width
         self.depth = depth
         self._confidence = min_threshold
@@ -88,7 +89,7 @@ class Tree:
                         continue
                     
                     df_m = node_data.query(name)
-                    confidence = metrics.calc_confidences(
+                    confidence = metrics.calc_multisupport(
                         df_m[self.target_column],
                         self._confidence,    
                     )
@@ -104,7 +105,7 @@ class Tree:
     def get_rules(self) -> pd.DataFrame:
         columns=(
             "antecedents", "consequents", 
-            "support", "confidence",
+            "support", "confidence", "lift",
         )
         data = []
         def nested():
@@ -120,7 +121,9 @@ class Tree:
                     data.append([
                         antecedent,
                         frozenset((f"{self.target_column}={v}",)),
-                        cursor.support, c,
+                        cursor.support, c, 
+                        c / self.target_support[v], 
+                        
                     ])
 
             for node in cursor.edges:
@@ -131,6 +134,7 @@ class Tree:
         
         nested()
         return pd.DataFrame(data, columns=columns)
+
 
 if __name__ == '__main__':
     t = Tree(

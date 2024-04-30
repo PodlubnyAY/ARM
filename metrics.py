@@ -31,7 +31,7 @@ def calc_support(parsel, data):
     return data.query(parsel).shape[0] / data.shape[0]
 
 
-def calc_confidences(s: pd.Series, min_confidence):
+def calc_multisupport(s: pd.Series, min_confidence):
     confidences = {}
     for value, count in s.value_counts().items():
         confidence = count / s.size
@@ -47,5 +47,3 @@ metric_dict = {
     "lift": lambda sAC, sA, sC: sAC / sA / sC,
     "leverage": lambda sAC, sA, sC: sAC - sA * sC,
 }
-
-
