@@ -1,7 +1,6 @@
 import re
 import pandas as pd
 from functools import reduce
-from itertools import combinations
 from multiprocessing import Pool
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import association_rules
@@ -10,6 +9,8 @@ from tree import Tree
 
 MIN_SUPPORT = 0.05
 MIN_THRESHOLD = 0.9
+FILE_FORMATS = ('txt', 'csv', 'xls', 'xlsx')
+METRICS = {'confidence', 'leverage', 'conviction', 'zhangs_metric', 'lift'}
 
 
 def _get_tree_rule(df, target, min_support, min_threshold, depth, width):
@@ -23,7 +24,7 @@ def _get_tree_rule(df, target, min_support, min_threshold, depth, width):
 
 
 def tree_rules(
-    df, min_support, min_threshold,
+    df, min_support, metric, min_threshold,
     tree_root=None, width=None, depth=None, n_proc=None, **kwargs,
 ):
     params = (
@@ -71,12 +72,13 @@ def one_hot_encode(df, labels=False):
 
 
 def freq_itemset_rules(method):
-    def wrapped(df, min_support, min_threshold, **kwargs):
+    def wrapped(df, min_support, metric, min_threshold, **kwargs):
         data = one_hot_encode(df)
         frequent_itemsets = method(data, min_support, use_colnames=True)
         rules = association_rules(
             frequent_itemsets, 
             min_threshold=min_threshold,
+            metric=metric,
         )
         rules['support'] = rules['antecedent support']
         return rules.drop(columns=['antecedent support', 'consequent support'])
@@ -98,9 +100,61 @@ def parsel_and_conclusion(df, parsel, conclusion):
               (df["consequents"] == frozenset(conditions["consequents"]))]
 
 
-METRICS = {'confidence', 'leverage', 'conviction', 'zhangs_metric', 'lift'}
-METHODS = {
-    "apriori": freq_itemset_rules(apriori), 
-    "fpgrowth": freq_itemset_rules(fpgrowth),
-    "tree": tree_rules,
-}
+def read_file(file, no_header, delimiter):
+    header = None if no_header else 0
+    file_format = file.split('.')[-1]
+    if file_format not in FILE_FORMATS:
+        print(
+            f"Неверный формат файла: ({file_format})."
+            " Необходим", *FILE_FORMATS
+        )
+        exit(1)
+    if file_format.startswith('xls'):
+        buff = pd.read_excel(file, header=header)
+        if no_header:
+            buff.columns = [f'X{i}' for i in range(buff.shape[1])]
+        return buff
+    buff = pd.read_csv(file, header=header, delimiter=delimiter)
+    if no_header:
+        buff.columns = [f'X{i}' for i in range(buff.shape[1])]
+    return buff
+
+
+
+def print_rules(rules, metric, save_to=None, delimiter=','):
+    if not rules.shape[0]:
+        print("Нет логических зависимостей с заданными ограничениями")
+        return
+    
+    rules = rules.round(2)
+    rules: pd.DataFrame = rules.sort_values(by=['support', metric], ascending=False)
+    rules.reset_index(inplace=True, drop=True)
+    print(rules.to_string())
+    if save_to:
+        if save_to.endswith('csv') or save_to.endswith('txt'):
+            rules.to_csv(save_to, sep=delimiter, index=False)
+        elif save_to.endswith('xlsx') or save_to.endswith('xls'):
+            rules.to_excel(save_to, index=False)
+        else:
+            print(f"Неверный формат файла {save_to}. Необходим {FILE_FORMATS}")
+
+
+def get_rules(
+    method, df, min_support, metric, min_threshold, **kwargs# tree_root, n_proc=None, width=0, depth=0,
+):
+    methods = {
+        "apriori": freq_itemset_rules(apriori), 
+        "fpgrowth": freq_itemset_rules(fpgrowth),
+        "tree": tree_rules,
+    }
+    method = methods.get(method, fpgrowth)
+    base_rules = method(
+        df, min_support=min_support,
+        min_threshold=min_threshold,
+        metric=metric,
+        **kwargs,
+        # n_proc=n_proc,
+        # width=width,
+        # depth=depth,
+    )
+    return base_rules
