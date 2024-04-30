@@ -18,7 +18,7 @@ class ArgParser:
                 if isinstance(val, bool):
                     p.add_argument(f"--{arg}",  default=val, action="store_true")
                 elif val is None:
-                    p.add_argument(f"--{arg}", type=str, default=None,
+                    p.add_argument(f"--{arg}", default=None,
                                    help="По умолчанию не используется")
                 else:
                     p.add_argument(f"--{arg}", type=type(val), default=val,
