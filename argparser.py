@@ -14,7 +14,7 @@ class ArgParser:
         p = self.sub.add_parser(name=f.__name__, help=f.__doc__)
         if info.defaults:
             defaults = len(info.defaults)
-            for arg, val in zip(info.args[::-1], info.defaults[::-1]):
+            for arg, val in zip(info.args[-defaults:], info.defaults):
                 if isinstance(val, bool):
                     p.add_argument(f"--{arg}",  default=val, action="store_true")
                 elif val is None:
@@ -25,7 +25,7 @@ class ArgParser:
                                    help=f"по умолчанию {val}")
         else:
             defaults = 0
-            
+
         for i in range(len(info.args) - defaults):
             if info.annotations[info.args[i]] is List[str]:
                 p.add_argument(
@@ -41,7 +41,7 @@ class ArgParser:
     
     def run(self):
         args = self.parser.parse_args()
-        args_d = vars(args)
+        args_map = vars(args)
         func = self.runner[args.command]
-        args_d.pop('command', None)
-        func(**args_d)
+        args_map.pop('command', None)
+        func(**args_map)
